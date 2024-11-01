@@ -1,0 +1,65 @@
+#!/usr/local/bin/python
+import re
+import os
+import argparse
+import logging
+import sys
+
+
+def substitute(data_set, targets):
+    """Processing files line by line and replacing env variables in placeholders {{}}"""
+    for file in targets:
+        logging.info('Processing file: {file}'.format(file=file))
+        with open(file, "r") as f:
+            data = f.read()
+            matches = [match for match in re.finditer(r'\{\{(.*?)}}', data)]
+            if matches:
+                for item in matches:
+                    try:
+                        env_var = data_set[item.group()[2:-2]]
+                        logging.info('Replacing variable {} in file: {}'.format(item.group()[2:-2], file))
+                        data = data.replace(item.group(), '{}'.format(env_var))
+                    except KeyError:
+                        logging.warning('{} environment variable not found'.format(item.group()[2:-2]))
+                else:
+                    open(file, "w").write(data)
+                    logging.info('DONE')
+            else:
+                logging.error('Placeholders not found')
+
+
+def get_files(paths):
+    """Collecting files recursively within destination"""
+    file_set = set()
+    for path in paths:
+        if os.path.isdir(path):
+            for (_dir, _, _files) in os.walk(path):
+                for f in _files:
+                    file_set.add(os.path.join(_dir, f))
+        elif os.path.isfile(path):
+            file_set.add(path)
+    return file_set
+
+
+if __name__ == "__main__":
+    logging.basicConfig(stream=sys.stderr,
+                        level=logging.INFO,
+                        format='[%(levelname).4s]:[%(asctime)s]: %(message)s',
+                        datefmt='%d/%m/%Y:%M:%S')
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-p', '--path',
+                        nargs='+',
+                        type=str,
+                        required=True,
+                        help='Path to env substitution location. May be folder or target file.')
+
+    args = parser.parse_args()
+
+    files = get_files(args.path)
+    if files:
+        logging.info("Replacing environment variables in the following locations: {}".format(args.path))
+        substitute(os.environ, files)
+    else:
+        logging.error('Files not found')

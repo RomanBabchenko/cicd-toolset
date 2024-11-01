@@ -1,0 +1,87 @@
+#!/usr/local/bin/python
+import re
+import os
+import argparse
+import logging
+import sys
+
+
+def substitute(data_set, targets):
+    """Processing files line by line and replacing env variables in placeholders {{}}"""
+    for file in targets:
+        logging.info('Processing file: {file}'.format(file=file))
+        with open(file, "r") as f:
+            data = f.read()
+            matches = [match for match in re.finditer(r'\{\{(.*?)}}', data)]
+            if matches:
+                for item in matches:
+                    try:
+                        env_var = data_set[item.group(1)]
+                        logging.info('Replacing variable {} in file: {}'.format(item.group(1), file))
+                        data = data.replace(item.group(), '{}'.format(env_var))
+                    except KeyError:
+                        logging.warning('{} environment variable not found'.format(item.group(1)))
+                else:
+                    open(file, "w").write(data)
+                    logging.info('DONE')
+            else:
+                logging.error('Placeholders not found')
+
+
+def unpack_data(env_var):
+    """Processing data set from multiline variable and filling env dict"""
+    data_set = {}
+    for match in re.finditer(r'(.*)(: \'([\s\S]*?)\')', env_var):
+        data_set[match.group(1)] = match.group(3)
+    return data_set
+
+
+def get_files(paths):
+    """Collecting files recursively within destination"""
+    file_set = set()
+    for path in paths:
+        if os.path.isdir(path):
+            for (_dir, _, _files) in os.walk(path):
+                for f in _files:
+                    file_set.add(os.path.join(_dir, f))
+        elif os.path.isfile(path):
+            file_set.add(path)
+    return file_set
+
+
+if __name__ == "__main__":
+    logging.basicConfig(stream=sys.stderr,
+                        level=logging.INFO,
+                        format='[%(levelname).4s]:[%(asctime)s]: %(message)s',
+                        datefmt='%d/%m/%Y:%M:%S')
+
+    parser = argparse.ArgumentParser(description='Environment substitution tool for replacing variables in target files which contains placeholdes {{VAR_NAME}}.')
+    parser.add_argument('-s', '--set', help='Unpack variables from existing env variable set. Pattern <ENV_NAME> :\'<VALUE>\'')
+    parser.add_argument('-p', '--path',
+                        nargs='+',
+                        required=True,
+                        type=str,
+                        help='Path to files with placeholders {{}}. May be folder or target file.')
+
+    args = parser.parse_args()
+    env_set = os.environ
+
+    if args.set:
+        try:
+            env_set = unpack_data(os.environ[args.set])
+            if env_set:
+                logging.info("Replacing environment variable set {} in the following locations: {}".format(args.set, args.path))
+            else:
+                logging.error('Variables in set not found')
+                exit()
+        except KeyError:
+            logging.error('Data set variable {} not found'.format(args.set))
+            exit()
+    else:
+        logging.info("Replacing environment variables in the following locations: {}".format(args.path))
+
+    files = get_files(args.path)
+    if files:
+        substitute(env_set, files)
+    else:
+        logging.error('Files not found')

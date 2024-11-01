@@ -1,0 +1,42 @@
+#!/usr/local/bin/python
+import re
+import os
+import argparse
+import logging
+import sys
+
+
+def unpack_data(env_var):
+    """Processing data set from multiline variable and filling env dict"""
+    data_set = {}
+    for match in re.finditer(r'(.*)(: \'([\s\S]*?)\')', env_var):
+        data_set[match.group(1)] = match.group(2)[3:-1]
+    return data_set
+
+
+def env_spay(data_set):
+    """Print shell script for env make from data"""
+    for key, value in data_set.items():
+        print('export {}="{}"'.format(key, re.sub("[\'\"]", '', value)))
+
+
+if __name__ == "__main__":
+    logging.basicConfig(stream=sys.stderr,
+                        level=logging.INFO,
+                        format='[%(levelname).4s]:[%(asctime)s]: %(message)s',
+                        datefmt='%d/%m/%Y:%M:%S')
+
+    parser = argparse.ArgumentParser(description='Tool for unpacking variables from existing env variable set and print to stdout as shell script for further execution. Example: source <(process)')
+    parser.add_argument('-s', '--set', required=True, help='Name of existing env variable set. Pattern <ENV_NAME> :\'<VALUE>\'')
+    args = parser.parse_args()
+    env_set = os.environ
+
+    if args.set:
+        try:
+            env_set = unpack_data(os.environ[args.set])
+            if env_set:
+                env_spay(env_set)
+            else:
+                logging.error('Variables in set not found')
+        except KeyError:
+            logging.error('Data set variable {} not found'.format(args.set))

@@ -1,0 +1,53 @@
+#!/usr/local/bin/python
+import smtplib
+import time
+import requests
+import os
+import re
+import argparse
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from datetime import datetime
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--test-type', required=False, help='Type of tests')
+parser.add_argument('--version', required=False, help='Current version')
+args = parser.parse_args()
+test_type = args.test_type
+version = args.version
+
+SMTP_HOST = os.environ['SMTP_HOST']
+SMTP_PORT = os.environ['SMTP_PORT']
+SMTP_USER_NAME = os.environ['SMTP_USER_NAME']
+SMTP_PASSWORD = os.environ['SMTP_PASSWORD']
+SMTP_SENDER_EMAIL = os.environ['SMTP_SENDER_EMAIL']
+SMTP_MAIL_RECIPIENTS = os.environ['SMTP_MAIL_RECIPIENTS']
+REPORT_URL = os.environ['REPORT_URL']
+CI_COMMIT_SHORT_SHA = os.environ['CI_COMMIT_SHORT_SHA']
+CI_COMMIT_TIMESTAMP = datetime.strptime(os.environ['CI_COMMIT_TIMESTAMP'], '%Y-%m-%dT%H:%M:%S%z').strftime("date: %d/%m/%Y, time: %H:%M:%S %Z")
+CI_PROJECT_NAME = os.environ['CI_PROJECT_NAME']
+CI_COMMIT_BRANCH = os.environ['CI_COMMIT_BRANCH']
+
+msg = MIMEMultipart('alternative')
+if test_type == 'full':
+    msg['Subject'] = f"Full regression test report. {CI_COMMIT_TIMESTAMP}"
+else:
+    msg[
+        'Subject'] = f"Smoke test report. Service: {CI_PROJECT_NAME.upper()},{f' ver: {version},' if version else ''} env: {CI_COMMIT_BRANCH.upper()}, commit: {CI_COMMIT_SHORT_SHA}, {CI_COMMIT_TIMESTAMP}"
+msg['From'] = SMTP_SENDER_EMAIL
+msg['To'] = SMTP_MAIL_RECIPIENTS
+
+for _ in range(5):
+    response = requests.get(REPORT_URL)
+    print(f'Report status code: {response.status_code}')
+    if response.status_code == 200:
+        open("report.html", "wb").write(response.content)
+        with open("report.html", "r") as html:
+            msg.attach(MIMEText(html.read(), 'html'))
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as mail:
+            mail.login(SMTP_USER_NAME, SMTP_PASSWORD)
+            mail.set_debuglevel(2)
+            mail.sendmail(SMTP_SENDER_EMAIL, re.sub(r" *", "", SMTP_MAIL_RECIPIENTS).split(','), msg.as_string())
+            break
+    print('Trying to get data after 5 sec...')
+    time.sleep(5)
